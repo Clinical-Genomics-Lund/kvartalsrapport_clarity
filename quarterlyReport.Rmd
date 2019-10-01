@@ -1,0 +1,121 @@
+---
+title: ""
+
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    
+params:
+ klinik:
+  value: "Other"
+ startM:
+  value: "2019-07-01"
+ stopM:
+  value: "2019-09-30"
+
+---
+
+```{r setup, include=FALSE}
+
+
+knitr::opts_chunk$set(echo = TRUE)
+options(stringsAsFactors = F)
+
+library(knitr)
+library(dplyr)
+
+
+startM <- as.Date(params$startM)
+stopM <- as.Date(params$stopM)
+
+
+```
+
+## Rapport över analyser utförda vid CMD  `r startM` till `r stopM`
+
+Rapport skapad: `r Sys.time()`
+
+
+
+
+```{r readdata, include=FALSE}
+
+
+# Läs in data
+sampleData.raw <- read.csv("/data/bnf/proj/clarityReport/data/production/sample_data.fixed.tsv",row.names=NULL,sep="\t")
+
+
+# Ta bort prover från KlinGenPat
+sampleData<-sampleData.raw[sampleData.raw$Department != "Klinisk Genetik" & sampleData.raw$Department != "Klinisk Patologi",]
+
+
+# Korrigering av komplementprover som reggats in i KlinGen
+sampleData[sampleData$Department=="Klinisk Genetik" & sampleData$Diagnos=="complement","Department"]<-"Klinisk immunologi och transfusionsmedicin"
+sampleData<-rbind(sampleData,sampleData.raw[sampleData.raw$Department=="Klinisk Genetik" & sampleData.raw$Diagnos=="complement",])
+
+# Filtrera in prover från önskad tidsperiod
+sampleData<-dplyr::filter(sampleData,Date <= stopM, Date >= startM)
+
+# Ta bort CTG och skräpprojektprover
+sampleData<-dplyr::filter(sampleData,Project != "The_TEST_Project")
+sampleData<-dplyr::filter(sampleData,Department!= "CMD")
+sampleData<-sampleData[grep("CTG",sampleData$Department,invert = T),]
+sampleData<-dplyr::filter(sampleData,Analysis!= "Unknown")
+
+# För myeloida panelen, räkna bara cancerprover
+sampleData<-dplyr::filter(sampleData,!(Analysis   == "Myeloisk Panel - Parad" & Tissue == "Hud" ))
+
+# Ta bort onödiga koluner
+sampleData <- sampleData[,!(colnames(sampleData) %in% c("Concentration","Tissue","NucleotideType"))]
+
+# Skapa separat tabell med ej ännu sekvenserade prover (kommer att visas längst ner)
+sampleData.notseq<-sampleData[sampleData$SequencingRuns == 0,]
+
+# För prover att debitera, ta bort prover som ej sekvenserats
+sampleData<-sampleData[sampleData$SequencingRuns > 0,]
+
+
+# plocka bort ej godkända NIPT
+sampleData<-dplyr::filter(sampleData, Classification !=  "Valideringsprov - Ej Godkänt",  Classification != "Rutinprov - Ej Godkänt")
+
+````
+
+
+## Prover per avdelning
+
+
+```{r, echo=F}
+t1<-as.data.frame(table(sampleData$Department,sampleData$Analysis))
+t1 <- t1[t1$Freq>0,]
+
+
+
+kable(t1,row.names = F,col.names = c("Avdelning","Analys","Antal prover"))
+
+```
+
+## Förteckning alla prover att debitera
+
+
+```{r, echo=F,results='asis'}
+
+
+for (analysis in unique(t1$Var1)){
+  sampleData.tmp <- sampleData[sampleData$Department == analysis,]
+    cat('\n###', analysis, '\n')
+  print(kable(sampleData.tmp,row.names = F))
+
+}
+
+```
+
+
+## Förteckning över prover som kan behöva debiteras
+
+Dessa externa prover har kommit in under tidsperioden men har ej ännu sekvenserats (SequencingRuns = 0).
+```{r, echo=F}
+
+kable(sampleData.notseq,row.names = F,)
+
+```
